@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package chat;
+option go_package = "chatpb";
+
+message Letter {
+    string user = 1;
+    string text = 2;
+    // string destip = 3;
+    // string destport = 4;
+}
+
+message ChatRequest {
+    Letter msg = 1;
+}
+
+message ChatResponse {
+    Letter msg = 1;
+}
+
+message ConnectRequest {
+    string ip = 1;
+}
+
+message ConnectResponse {
+    string ack = 1;
+}
+
+message ListenRequest {
+    string user = 1;
+}
+
+message ListenResponse {
+    Letter msg = 1;
+}
+
+service ChatService {
+    //rpc Connect(ConnectRequest) returns (ConnectResponse) {};
+    rpc Chat(stream ChatRequest) returns (stream ChatResponse) {};
+    rpc Listen(ListenRequest) returns (stream ListenResponse) {};
+
+}
