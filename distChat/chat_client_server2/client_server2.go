@@ -24,16 +24,7 @@ type server struct {
 	UserMutex   sync.RWMutex
 }
 
-// func (*server) Connect(context.Background(), req *chatpb.ConnectRequest) (res *chatpb.ConnectResponse, error) {
-// 	ip := req.GetIp()
-
-// }
-
-//March 15th
-
 func (c *server) Chat(stream chatpb.ChatService_ChatServer) error {
-	//go c.sendBroadcasts(stream, users)
-
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
@@ -42,44 +33,19 @@ func (c *server) Chat(stream chatpb.ChatService_ChatServer) error {
 		if err != nil {
 			log.Fatalf("Error recieving from chat stream: %v\n", err)
 		}
-
 		usr := req.GetMsg().GetUser()
 		text := req.GetMsg().GetText()
-
-		//fmt.Printf("Server Recieved: %v :by: , %v\n", text, usr)
-
-		// _, ok := c.getName(usr)
-		// if ok == false {
-		// 	//c.setName(usr)
-		// 	//go c.sendMessages(stream, usr)
-		// 	//fmt.Printf("set: %v\n", usr)
-		// 	//go c.broadcast(context.Background())
-		// 	//fmt.Println("after send Messages")
-		// 	//c.setMessage(usr, req)
-		// 	//fmt.Println("after set message")
-		// }
-
 		c.Listener <- chatpb.ListenResponse{
 			Msg: &chatpb.Letter{
 				User: usr,
 				Text: text,
 			},
 		}
-		//TODO GET RID OF BELOW
-		// c.Broadcast <- chatpb.ChatResponse{
-		// 	Msg: &chatpb.Letter{
-		// 		User: usr,
-		// 		Text: text,
-		// 	},
-		// }
 	}
 }
 
 func (c *server) Listen(req *chatpb.ListenRequest, stream chatpb.ChatService_ListenServer) error {
-	//user := req.GetUser()
-	//c.setName(user)
 	fmt.Println("server doing listen")
-
 	c.sendMessages(stream)
 	return nil
 }
@@ -99,23 +65,17 @@ func (c *server) delName(user string) {
 }
 
 func (c *server) setMessage(user string, req *chatpb.ChatRequest) {
-	//fmt.Println("in setMessage")
 	c.StreamMutex.Lock()
-	//fmt.Println("in setMessage with lock")
 
 	usr := req.GetMsg().GetUser()
 	text := req.GetMsg().GetText()
 
-	//fmt.Println("before message added")
 	c.UserStreams[user] <- chatpb.ChatResponse{
 		Msg: &chatpb.Letter{
 			User: usr,
 			Text: text,
 		},
 	}
-	//fmt.Println("after message added")
-
-	//fmt.Printf("UserStreams at %v is: %v", user, <-c.UserStreams[user])
 	c.StreamMutex.Unlock()
 }
 
@@ -135,8 +95,6 @@ func (c *server) closeStream(user string) {
 		close(stream)
 	}
 
-	//DebugLogf("closed stream for client %s", user)
-
 	c.StreamMutex.Unlock()
 }
 
@@ -151,13 +109,10 @@ func (c *server) broadcast(ctx context.Context) {
 }
 
 func (c *server) sendMessages(srv chatpb.ChatService_ListenServer) {
-	//c.openStream(user)
 	stream := c.Listener
 	defer close(stream)
-
 	for {
 		res := <-stream
-		//fmt.Printf("sendMessages sent: %v\n", res)
 		srv.Send(&res)
 	}
 
@@ -169,24 +124,6 @@ func (c *server) getName(user string) (name string, ok bool) {
 	c.UserMutex.Unlock()
 	return name, ok
 }
-
-// func (s *server) sendBroadcasts(srv chatpb.ChatService_ChatServer, user string) {
-// 	stream := s.openStream(user)
-// 	defer s.closeStream(user)
-
-// 	for {
-// 		select {
-// 		case <-srv.Context().Done():
-// 			return
-// 		case res := <-stream:
-// 			srv.Send(&res)
-// 		}
-// 	} //TODO refactor this
-// }
-
-//TODO deal with disconnecting and dropping clients etc.
-
-//func Run()
 
 func Run(ip string) {
 	fmt.Println("Hello World")
