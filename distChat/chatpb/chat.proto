@@ -12,6 +12,7 @@ message Letter {
 
 message ChatRequest {
     Letter msg = 1;
+    string IP = 2;
 }
 
 message ChatResponse {
@@ -38,5 +39,4 @@ service ChatService {
     //rpc Connect(ConnectRequest) returns (ConnectResponse) {};
     rpc Chat(stream ChatRequest) returns (stream ChatResponse) {};
     rpc Listen(ListenRequest) returns (stream ListenResponse) {};
-
 }

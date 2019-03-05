@@ -8,8 +8,8 @@ import (
 	"log"
 	"os"
 
-	cserver "github.com/dylChat/chat_client_server"
-	chatpb "github.com/dylChat/chatpb"
+	cserver "github.com/Distributed-Messaging/distChat/chat_client_server"
+	chatpb "github.com/Distributed-Messaging/distChat/chatpb"
 	"google.golang.org/grpc"
 )
 

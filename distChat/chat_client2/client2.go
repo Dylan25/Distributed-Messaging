@@ -7,22 +7,30 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 
-	c2server "github.com/dylChat/chat_client_server2"
-	chatpb "github.com/dylChat/chatpb"
+	c2server "github.com/Distributed-Messaging/distChat/chat_client_server2"
+	chatpb "github.com/Distributed-Messaging/distChat/chatpb"
 	"google.golang.org/grpc"
 )
 
-func chatting(c chatpb.ChatServiceClient) {
-	waitc := make(chan struct{})
-	// messages := make(chan string)
+func chatting(c chatpb.ChatServiceClient, user string, text string) {
 	stream, err := c.Chat(context.Background())
 	if err != nil {
 		log.Fatalf("Error creating Stream: %v", err)
 		return
 	}
 
-	//var replies []string
+	stream.Send(&chatpb.ChatRequest{
+		Msg: &chatpb.Letter{
+			User: user,
+			Text: text,
+		},
+	})
+}
+
+func chatConsole(clients []chatpb.ChatServiceClient) {
+	waitc := make(chan struct{})
 	go func() {
 		buf := bufio.NewReader(os.Stdin)
 		fmt.Print("Enter user name: ")
@@ -36,45 +44,18 @@ func chatting(c chatpb.ChatServiceClient) {
 		}
 
 		for {
-			// for _, message := range replies {
-			// 	fmt.Println(message)
-			// }
-			// replies = replies[:0]
-			// fmt.Print(":> ")
 			text, err := buf.ReadString('\n')
 			if err != nil {
 				log.Fatalf("Error reading message input: %v", err)
 				continue
 			}
-			stream.Send(&chatpb.ChatRequest{
-				Msg: &chatpb.Letter{
-					User: user,
-					Text: text,
-				},
-			})
-			//fmt.Printf("Sent: %v\n", text)
+
+			for _, c := range clients {
+				chatting(c, user, text)
+			}
 		}
 	}()
 
-	// go func() {
-	// 	for {
-	// 		res, err := stream.Recv()
-	// 		if err == io.EOF {
-	// 			break
-	// 		}
-	// 		if err != nil {
-	// 			log.Fatalf("Erro while recieving: %v", err)
-	// 			break
-	// 		}
-	// 		user := res.GetMsg().GetUser()
-	// 		user = user[:len(user)-1]
-	// 		text := res.GetMsg().GetText()
-	// 		text = text[:len(text)-1]
-	// 		reply := user + ": " + text
-	// 		fmt.Println(reply)
-	// 		// append(replies, reply) //Race condition?
-	// 	}
-	// }()
 	<-waitc
 
 }
@@ -103,9 +84,22 @@ func listening(c chatpb.ChatServiceClient) {
 		text = text[:len(text)-1]
 		reply := user + ": " + text
 		fmt.Println(reply)
-		// append(replies, reply) //Race condition?
 	}
 
+}
+
+func makeClients(Ips []string) []chatpb.ChatServiceClient {
+	var clients []chatpb.ChatServiceClient
+	for _, ip := range Ips {
+		cc, err := grpc.Dial(ip, grpc.WithInsecure())
+		if err != nil {
+			log.Fatalf("Could not connect: %v", err)
+		}
+		c := chatpb.NewChatServiceClient(cc)
+		clients = append(clients, c)
+	}
+
+	return clients
 }
 
 func main() {
@@ -119,21 +113,18 @@ func main() {
 	ip = ip[:len(ip)-1]
 	go c2server.Run(ip)
 
-	fmt.Print("ip to connect to: ")
+	fmt.Print("ips to connect to: ")
 	ipToConnect, ipcerr := buf.ReadString('\n')
 	if ipcerr != nil {
 		log.Fatalf("Error reading ip and port: %v", ipcerr)
 	}
 	ipToConnect = ipToConnect[:len(ipToConnect)-1]
+	IPs := strings.Fields(ipToConnect)
+	fmt.Println(IPs)
 
-	fmt.Println("Hello I'm client")
-	cc, err := grpc.Dial(ipToConnect, grpc.WithInsecure())
-	if err != nil {
-		log.Fatalf("Could not connect: %v", err)
-	}
-	defer cc.Close()
+	clients := makeClients(IPs)
 
-	c := chatpb.NewChatServiceClient(cc)
+	//c := chatpb.NewChatServiceClient(cc)
 
 	lc, lerr := grpc.Dial(ip, grpc.WithInsecure())
 	if lerr != nil {
@@ -145,13 +136,5 @@ func main() {
 
 	go listening(l)
 	//fmt.Println("prepairing to chat\n")
-	chatting(c)
-	//cs := greetpb.NewSumServiceClient //TODO move sum into its own server client thing
-	// fmt.Printf("Created client: %f", c)
-
-	//doUnary(c)
-
-	//doServerStreaming(c)
-	//doClientStreaming(c)
-	//doBiDiStreaming(c)
+	chatConsole(clients)
 }

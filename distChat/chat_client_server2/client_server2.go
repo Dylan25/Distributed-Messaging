@@ -9,7 +9,7 @@ import (
 	"os"
 	"sync"
 
-	chatpb "github.com/dylChat/chatpb"
+	chatpb "github.com/Distributed-Messaging/distChat/chatpb"
 	"google.golang.org/grpc"
 )
 
