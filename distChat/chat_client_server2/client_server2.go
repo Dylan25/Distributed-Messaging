@@ -9,9 +9,56 @@ import (
 	"os"
 	"sync"
 
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+
 	chatpb "github.com/Distributed-Messaging/distChat/chatpb"
 	"google.golang.org/grpc"
 )
+
+//********* database stuff ********
+
+var collection *mongo.Collection
+
+type Message struct {
+	ID   primitive.ObjectID `bson:"_id,omitempty"`
+	User string             `bson:"user,omitempty"`
+	Text string             `bson:"text,omitempty"`
+	Time int64              `bson:"time,omitempty"`
+}
+
+func StoreMessage(req *chatpb.ChatRequest) {
+	message := req.GetMsg()
+	messagetostore := Message{
+		User: message.GetUser(),
+		Text: message.GetText(),
+		Time: message.GetTime(),
+	}
+
+	collection.InsertOne(context.Background(), messagetostore)
+
+	//return NOTE do I need the status errors?
+}
+
+func GetAllMessages() []Message {
+	var messages []Message
+	cursor, err := collection.Find(context.Background(), bson.M{})
+	if err != nil {
+		fmt.Println("could not read messages")
+	}
+	defer cursor.Close(context.Background())
+	for cursor.Next(context.Background()) {
+		var message Message
+		cursor.Decode(&message)
+		messages = append(messages, message)
+	}
+
+	return messages
+}
+
+//********** end database stuff **********
 
 type server struct {
 	Broadcast chan chatpb.ChatResponse
@@ -33,19 +80,37 @@ func (c *server) Chat(stream chatpb.ChatService_ChatServer) error {
 		if err != nil {
 			log.Fatalf("Error recieving from chat stream: %v\n", err)
 		}
+		StoreMessage(req)
 		usr := req.GetMsg().GetUser()
 		text := req.GetMsg().GetText()
+		time := req.GetMsg().GetTime()
 		c.Listener <- chatpb.ListenResponse{
 			Msg: &chatpb.Letter{
 				User: usr,
 				Text: text,
+				Time: time,
 			},
 		}
 	}
 }
 
-func (c *server) Listen(req *chatpb.ListenRequest, stream chatpb.ChatService_ListenServer) error {
+func (c *server) SendMessageHistory() {
+	history := GetAllMessages()
+
+	for _, message := range history {
+		c.Listener <- chatpb.ListenResponse{
+			Msg: &chatpb.Letter{
+				User: message.User,
+				Text: message.Text,
+				Time: message.Time,
+			},
+		}
+	}
+}
+
+func (c *server) Listen(stream chatpb.ChatService_ListenServer) error {
 	fmt.Println("server doing listen")
+	c.SendMessageHistory()
 	c.sendMessages(stream)
 	return nil
 }
@@ -69,11 +134,13 @@ func (c *server) setMessage(user string, req *chatpb.ChatRequest) {
 
 	usr := req.GetMsg().GetUser()
 	text := req.GetMsg().GetText()
+	time := req.GetMsg().GetTime()
 
 	c.UserStreams[user] <- chatpb.ChatResponse{
 		Msg: &chatpb.Letter{
 			User: usr,
 			Text: text,
+			Time: time,
 		},
 	}
 	c.StreamMutex.Unlock()
@@ -127,6 +194,17 @@ func (c *server) getName(user string) (name string, ok bool) {
 
 func Run(ip string) {
 	fmt.Println("Hello World")
+	uri := "mongodb://localhost:27017"
+	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = client.Connect(context.TODO())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	collection = client.Database("mydb").Collection("chat")
 
 	lis, err := net.Listen("tcp", ip)
 	if err != nil {

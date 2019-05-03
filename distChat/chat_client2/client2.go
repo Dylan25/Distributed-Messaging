@@ -8,13 +8,14 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	c2server "github.com/Distributed-Messaging/distChat/chat_client_server2"
 	chatpb "github.com/Distributed-Messaging/distChat/chatpb"
 	"google.golang.org/grpc"
 )
 
-func chatting(c chatpb.ChatServiceClient, user string, text string) {
+func chatting(c chatpb.ChatServiceClient, user string, text string, time int64) {
 	stream, err := c.Chat(context.Background())
 	if err != nil {
 		log.Fatalf("Error creating Stream: %v", err)
@@ -25,6 +26,7 @@ func chatting(c chatpb.ChatServiceClient, user string, text string) {
 		Msg: &chatpb.Letter{
 			User: user,
 			Text: text,
+			Time: time,
 		},
 	})
 }
@@ -45,13 +47,14 @@ func chatConsole(clients []chatpb.ChatServiceClient) {
 
 		for {
 			text, err := buf.ReadString('\n')
+			time := int64(time.Now().Unix())
 			if err != nil {
 				log.Fatalf("Error reading message input: %v", err)
 				continue
 			}
 
 			for _, c := range clients {
-				chatting(c, user, text)
+				chatting(c, user, text, time)
 			}
 		}
 	}()
@@ -61,9 +64,7 @@ func chatConsole(clients []chatpb.ChatServiceClient) {
 }
 
 func listening(c chatpb.ChatServiceClient) {
-	stream, err := c.Listen(context.Background(), &chatpb.ListenRequest{
-		User: "owner",
-	})
+	stream, err := c.Listen(context.Background())
 	if err != nil {
 		log.Fatalf("Error creating Stream: %v", err)
 		return
@@ -79,11 +80,12 @@ func listening(c chatpb.ChatServiceClient) {
 			break
 		}
 		user := res.GetMsg().GetUser()
+		messagetime := time.Unix(res.GetMsg().GetTime(), 0)
 		user = user[:len(user)-1]
 		text := res.GetMsg().GetText()
 		text = text[:len(text)-1]
-		reply := user + ": " + text
-		fmt.Println(reply)
+		reply := ":" + user + ": " + text
+		fmt.Printf("%v%s\n", messagetime, reply)
 	}
 
 }
