@@ -9,56 +9,15 @@ import (
 	"os"
 	"sync"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	chatpb "github.com/Distributed-Messaging/distChat/chatpb"
+	database "github.com/Distributed-Messaging/distChat/database"
 	"google.golang.org/grpc"
 )
 
-//********* database stuff ********
-
 var collection *mongo.Collection
-
-type Message struct {
-	ID   primitive.ObjectID `bson:"_id,omitempty"`
-	User string             `bson:"user,omitempty"`
-	Text string             `bson:"text,omitempty"`
-	Time int64              `bson:"time,omitempty"`
-}
-
-func StoreMessage(req *chatpb.ChatRequest) {
-	message := req.GetMsg()
-	messagetostore := Message{
-		User: message.GetUser(),
-		Text: message.GetText(),
-		Time: message.GetTime(),
-	}
-
-	collection.InsertOne(context.Background(), messagetostore)
-
-	//return NOTE do I need the status errors?
-}
-
-func GetAllMessages() []Message {
-	var messages []Message
-	cursor, err := collection.Find(context.Background(), bson.M{})
-	if err != nil {
-		fmt.Println("could not read messages")
-	}
-	defer cursor.Close(context.Background())
-	for cursor.Next(context.Background()) {
-		var message Message
-		cursor.Decode(&message)
-		messages = append(messages, message)
-	}
-
-	return messages
-}
-
-//********** end database stuff **********
 
 type server struct {
 	Broadcast chan chatpb.ChatResponse
@@ -80,7 +39,7 @@ func (c *server) Chat(stream chatpb.ChatService_ChatServer) error {
 		if err != nil {
 			log.Fatalf("Error recieving from chat stream: %v\n", err)
 		}
-		StoreMessage(req)
+		database.StoreMessage(req, collection)
 		usr := req.GetMsg().GetUser()
 		text := req.GetMsg().GetText()
 		time := req.GetMsg().GetTime()
@@ -95,7 +54,7 @@ func (c *server) Chat(stream chatpb.ChatService_ChatServer) error {
 }
 
 func (c *server) SendMessageHistory() {
-	history := GetAllMessages()
+	history := database.GetAllMessages(collection)
 
 	for _, message := range history {
 		c.Listener <- chatpb.ListenResponse{

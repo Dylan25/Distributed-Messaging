@@ -10,12 +10,18 @@ import (
 	"strings"
 	"time"
 
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+
 	c2server "github.com/Distributed-Messaging/distChat/chat_client_server2"
 	chatpb "github.com/Distributed-Messaging/distChat/chatpb"
+	database "github.com/Distributed-Messaging/distChat/database"
 	"google.golang.org/grpc"
 )
 
-func chatting(c chatpb.ChatServiceClient, user string, text string, time int64) {
+var collection *mongo.Collection
+
+func chatting(c chatpb.ChatServiceClient, user string, text string, time int64, group string) {
 	stream, err := c.Chat(context.Background())
 	if err != nil {
 		log.Fatalf("Error creating Stream: %v", err)
@@ -33,6 +39,7 @@ func chatting(c chatpb.ChatServiceClient, user string, text string, time int64) 
 
 func chatConsole(clients []chatpb.ChatServiceClient) {
 	waitc := make(chan struct{})
+	group := "testgroup"
 	go func() {
 		buf := bufio.NewReader(os.Stdin)
 		fmt.Print("Enter user name: ")
@@ -54,7 +61,7 @@ func chatConsole(clients []chatpb.ChatServiceClient) {
 			}
 
 			for _, c := range clients {
-				chatting(c, user, text, time)
+				chatting(c, user, text, time, group)
 			}
 		}
 	}()
@@ -104,7 +111,54 @@ func makeClients(Ips []string) []chatpb.ChatServiceClient {
 	return clients
 }
 
+func pickGroup() []string {
+
+	buf := bufio.NewReader(os.Stdin)
+	fmt.Print("enter group name: ")
+	group, grouperr := buf.ReadString('\n')
+	if grouperr != nil {
+		log.Fatalf("Error reading ip and port: %v", grouperr)
+	}
+	group = group[:len(group)-1]
+
+	grouptojoin, err := database.GetOneGroup(group, collection)
+
+	if err != nil {
+		fmt.Print("ips to connect to: ")
+		ipToConnect, ipcerr := buf.ReadString('\n')
+		if ipcerr != nil {
+			log.Fatalf("Error reading ip and port: %v", ipcerr)
+		}
+		ipToConnect = ipToConnect[:len(ipToConnect)-1]
+		IPs := strings.Fields(ipToConnect)
+
+		grouptojoin = database.Group{
+			IPs:  IPs,
+			Name: group,
+		}
+
+		database.StoreGroup(grouptojoin, collection)
+	}
+
+	fmt.Println("connecting to %s", group)
+	return grouptojoin.IPs
+}
+
 func main() {
+
+	uri := "mongodb://localhost:27017"
+	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = client.Connect(context.TODO())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	collection = client.Database("mydb").Collection("chatgroups")
+
+	// fmt.Println("group: %v", database.GetOneGroup("friends", collection))
 
 	buf := bufio.NewReader(os.Stdin)
 	fmt.Print("server ip and port: ")
@@ -115,14 +169,16 @@ func main() {
 	ip = ip[:len(ip)-1]
 	go c2server.Run(ip)
 
-	fmt.Print("ips to connect to: ")
-	ipToConnect, ipcerr := buf.ReadString('\n')
-	if ipcerr != nil {
-		log.Fatalf("Error reading ip and port: %v", ipcerr)
-	}
-	ipToConnect = ipToConnect[:len(ipToConnect)-1]
-	IPs := strings.Fields(ipToConnect)
-	fmt.Println(IPs)
+	// fmt.Print("ips to connect to: ")
+	// ipToConnect, ipcerr := buf.ReadString('\n')
+	// if ipcerr != nil {
+	// 	log.Fatalf("Error reading ip and port: %v", ipcerr)
+	// }
+	// ipToConnect = ipToConnect[:len(ipToConnect)-1]
+	// IPs := strings.Fields(ipToConnect)
+	// fmt.Println(IPs)
+
+	IPs := pickGroup()
 
 	clients := makeClients(IPs)
 
