@@ -30,16 +30,16 @@ func chatting(c chatpb.ChatServiceClient, user string, text string, time int64, 
 
 	stream.Send(&chatpb.ChatRequest{
 		Msg: &chatpb.Letter{
-			User: user,
-			Text: text,
-			Time: time,
+			User:  user,
+			Text:  text,
+			Time:  time,
+			Group: group,
 		},
 	})
 }
 
-func chatConsole(clients []chatpb.ChatServiceClient) {
+func chatConsole(clients []chatpb.ChatServiceClient, group string, l chatpb.ChatServiceClient) {
 	waitc := make(chan struct{})
-	group := "testgroup"
 	go func() {
 		buf := bufio.NewReader(os.Stdin)
 		fmt.Print("Enter user name: ")
@@ -51,6 +51,7 @@ func chatConsole(clients []chatpb.ChatServiceClient) {
 				log.Fatalf("Error reading message input: %v", uerr)
 			}
 		}
+		go listening(l, user, group)
 
 		for {
 			text, err := buf.ReadString('\n')
@@ -70,12 +71,16 @@ func chatConsole(clients []chatpb.ChatServiceClient) {
 
 }
 
-func listening(c chatpb.ChatServiceClient) {
+func listening(c chatpb.ChatServiceClient, user string, group string) {
 	stream, err := c.Listen(context.Background())
 	if err != nil {
 		log.Fatalf("Error creating Stream: %v", err)
 		return
 	}
+	stream.Send(&chatpb.ListenRequest{
+		User:  user,
+		Group: group,
+	})
 
 	for {
 		res, err := stream.Recv()
@@ -111,7 +116,7 @@ func makeClients(Ips []string) []chatpb.ChatServiceClient {
 	return clients
 }
 
-func pickGroup() []string {
+func pickGroup() ([]string, string) {
 
 	buf := bufio.NewReader(os.Stdin)
 	fmt.Print("enter group name: ")
@@ -140,8 +145,8 @@ func pickGroup() []string {
 		database.StoreGroup(grouptojoin, collection)
 	}
 
-	fmt.Println("connecting to %s", group)
-	return grouptojoin.IPs
+	fmt.Printf("connecting to %s", group)
+	return grouptojoin.IPs, grouptojoin.Name
 }
 
 func main() {
@@ -178,7 +183,7 @@ func main() {
 	// IPs := strings.Fields(ipToConnect)
 	// fmt.Println(IPs)
 
-	IPs := pickGroup()
+	IPs, groupName := pickGroup()
 
 	clients := makeClients(IPs)
 
@@ -192,7 +197,8 @@ func main() {
 
 	l := chatpb.NewChatServiceClient(lc)
 
-	go listening(l)
 	//fmt.Println("prepairing to chat\n")
-	chatConsole(clients)
+
+	chatConsole(clients, groupName, l)
+
 }

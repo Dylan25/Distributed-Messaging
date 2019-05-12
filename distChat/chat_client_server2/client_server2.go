@@ -43,33 +43,37 @@ func (c *server) Chat(stream chatpb.ChatService_ChatServer) error {
 		usr := req.GetMsg().GetUser()
 		text := req.GetMsg().GetText()
 		time := req.GetMsg().GetTime()
+		group := req.GetMsg().GetGroup()
 		c.Listener <- chatpb.ListenResponse{
 			Msg: &chatpb.Letter{
-				User: usr,
-				Text: text,
-				Time: time,
+				User:  usr,
+				Text:  text,
+				Time:  time,
+				Group: group,
 			},
 		}
 	}
 }
 
-func (c *server) SendMessageHistory() {
-	history := database.GetAllMessages(collection)
+func (c *server) SendMessageHistory(name string) {
+	fmt.Printf("searching for messages in: %v\n", name)
+	history := database.GetAllMessagesInGroup(name, collection)
+	//fmt.Printf("history at 0 is: %v\n", history[0])
 
 	for _, message := range history {
 		c.Listener <- chatpb.ListenResponse{
 			Msg: &chatpb.Letter{
-				User: message.User,
-				Text: message.Text,
-				Time: message.Time,
+				User:  message.User,
+				Text:  message.Text,
+				Time:  message.Time,
+				Group: message.Group,
 			},
 		}
 	}
 }
 
 func (c *server) Listen(stream chatpb.ChatService_ListenServer) error {
-	fmt.Println("server doing listen")
-	c.SendMessageHistory()
+	fmt.Println("server doing a Listen")
 	c.sendMessages(stream)
 	return nil
 }
@@ -94,12 +98,14 @@ func (c *server) setMessage(user string, req *chatpb.ChatRequest) {
 	usr := req.GetMsg().GetUser()
 	text := req.GetMsg().GetText()
 	time := req.GetMsg().GetTime()
+	group := req.GetMsg().GetGroup()
 
 	c.UserStreams[user] <- chatpb.ChatResponse{
 		Msg: &chatpb.Letter{
-			User: usr,
-			Text: text,
-			Time: time,
+			User:  usr,
+			Text:  text,
+			Time:  time,
+			Group: group,
 		},
 	}
 	c.StreamMutex.Unlock()
@@ -135,6 +141,13 @@ func (c *server) broadcast(ctx context.Context) {
 }
 
 func (c *server) sendMessages(srv chatpb.ChatService_ListenServer) {
+	req, err := srv.Recv()
+	if err != nil {
+		log.Fatalf("Error recieving from Listen stream: %v\n", err)
+	}
+	fmt.Printf("server dis sendMessages recieve group is: %v\n", req.GetGroup())
+	c.SendMessageHistory(req.GetGroup())
+	fmt.Println("server doing sendMessages")
 	stream := c.Listener
 	defer close(stream)
 	for {

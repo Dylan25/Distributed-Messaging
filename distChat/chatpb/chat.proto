@@ -31,6 +31,7 @@ message ConnectResponse {
 
 message ListenRequest {
     string user = 1;
+    string group = 2;
 }
 
 message ListenResponse {

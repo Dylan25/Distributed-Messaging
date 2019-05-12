@@ -42,10 +42,24 @@ func StoreMessage(req *chatpb.ChatRequest, collection *mongo.Collection) {
 	//return NOTE do I need the status errors?
 }
 
+func GetAllMessagesInGroup(name string, collection *mongo.Collection) []Message {
+	var messages []Message
+	cursor, err := collection.Find(context.Background(), Message{Group: name})
+	if err != nil {
+		fmt.Println("could not read messages in group")
+	}
+	defer cursor.Close(context.Background())
+	for cursor.Next(context.Background()) {
+		var message Message
+		cursor.Decode(&message)
+		messages = append(messages, message)
+	}
+
+	return messages
+}
+
 func StoreGroup(group Group, collection *mongo.Collection) {
 	collection.InsertOne(context.Background(), group)
-
-	//return NOTE do I need the status errors?
 }
 
 func GetAllGroups(collection *mongo.Collection) []Group {
@@ -73,22 +87,6 @@ func GetOneGroup(group string, collection *mongo.Collection) (Group, error) {
 	}
 
 	return g, nil
-}
-
-func GetAllMessages(collection *mongo.Collection) []Message {
-	var messages []Message
-	cursor, err := collection.Find(context.Background(), bson.M{})
-	if err != nil {
-		fmt.Println("could not read messages")
-	}
-	defer cursor.Close(context.Background())
-	for cursor.Next(context.Background()) {
-		var message Message
-		cursor.Decode(&message)
-		messages = append(messages, message)
-	}
-
-	return messages
 }
 
 //********** end database stuff **********
