@@ -12,8 +12,6 @@ import (
 	chatpb "github.com/Distributed-Messaging/distChat/chatpb"
 )
 
-//********* database stuff ********
-
 type Message struct {
 	ID    primitive.ObjectID `bson:"_id,omitempty"`
 	User  string             `bson:"user,omitempty"`
@@ -28,6 +26,26 @@ type Group struct {
 	Name string             `bson:"Name,omitempty"`
 }
 
+type Account struct {
+	ID       primitive.ObjectID `bson:"_id,omitempty"`
+	Password string             `bson:"IPs,omitempty"`
+	Name     string             `bson:"Name,omitempty"`
+}
+
+func StoreAccount(account Account, collection *mongo.Collection) {
+	collection.InsertOne(context.Background(), account)
+}
+
+func GetOneAccountByName(name string, collection *mongo.Collection) (Account, error) {
+	var a Account
+	err := collection.FindOne(context.Background(), Account{Name: name}).Decode(&a)
+	if err != nil {
+		fmt.Println("could not read Accounts")
+		return a, errors.New("could not find Account")
+	}
+	return a, nil
+}
+
 func StoreMessage(req *chatpb.ChatRequest, collection *mongo.Collection) {
 	message := req.GetMsg()
 	messagetostore := Message{
@@ -38,8 +56,6 @@ func StoreMessage(req *chatpb.ChatRequest, collection *mongo.Collection) {
 	}
 
 	collection.InsertOne(context.Background(), messagetostore)
-
-	//return NOTE do I need the status errors?
 }
 
 func GetAllMessagesInGroup(name string, collection *mongo.Collection) []Message {
@@ -88,5 +104,3 @@ func GetOneGroup(group string, collection *mongo.Collection) (Group, error) {
 
 	return g, nil
 }
-
-//********** end database stuff **********

@@ -116,18 +116,47 @@ func makeClients(Ips []string) []chatpb.ChatServiceClient {
 	return clients
 }
 
+func signIn() {
+	buf := bufio.NewReader(os.Stdin)
+	fmt.Print("enter your username: ")
+	username, usernameerr := buf.ReadString('\n')
+	if usernameerr != nil {
+		log.Fatalf("Error reading username: %v", usernameerr)
+	}
+	username = username[:len(username)-1]
+	account, accounterr := database.GetOneAccountByName(username, collection)
+	if accounterr != nil {
+		log.Fatalf("Error username does not match any registerd accounts, %v", accounterr)
+	}
+
+	incorrectPassword := true
+	for incorrectPassword {
+		fmt.Print("enter your password: ")
+		password, passworderr := buf.ReadString('\n')
+		if passworderr != nil {
+			log.Fatalf("Error reading password: %v", passworderr)
+		}
+		password = password[:len(password)-1]
+		if account.Password != password {
+			log.Printf("Error incorrect password: %v\n", passworderr)
+		} else {
+			incorrectPassword = false
+		}
+	}
+
+	fmt.Printf("Logged in as %v.\n", account.Name)
+}
+
 func pickGroup() ([]string, string) {
 
 	buf := bufio.NewReader(os.Stdin)
 	fmt.Print("enter group name: ")
 	group, grouperr := buf.ReadString('\n')
 	if grouperr != nil {
-		log.Fatalf("Error reading ip and port: %v", grouperr)
+		log.Fatalf("Error group name: %v", grouperr)
 	}
 	group = group[:len(group)-1]
-
 	grouptojoin, err := database.GetOneGroup(group, collection)
-
 	if err != nil {
 		fmt.Print("ips to connect to: ")
 		ipToConnect, ipcerr := buf.ReadString('\n')
@@ -136,12 +165,10 @@ func pickGroup() ([]string, string) {
 		}
 		ipToConnect = ipToConnect[:len(ipToConnect)-1]
 		IPs := strings.Fields(ipToConnect)
-
 		grouptojoin = database.Group{
 			IPs:  IPs,
 			Name: group,
 		}
-
 		database.StoreGroup(grouptojoin, collection)
 	}
 
@@ -173,32 +200,14 @@ func main() {
 	}
 	ip = ip[:len(ip)-1]
 	go c2server.Run(ip)
-
-	// fmt.Print("ips to connect to: ")
-	// ipToConnect, ipcerr := buf.ReadString('\n')
-	// if ipcerr != nil {
-	// 	log.Fatalf("Error reading ip and port: %v", ipcerr)
-	// }
-	// ipToConnect = ipToConnect[:len(ipToConnect)-1]
-	// IPs := strings.Fields(ipToConnect)
-	// fmt.Println(IPs)
-
 	IPs, groupName := pickGroup()
-
 	clients := makeClients(IPs)
-
-	//c := chatpb.NewChatServiceClient(cc)
-
 	lc, lerr := grpc.Dial(ip, grpc.WithInsecure())
 	if lerr != nil {
 		log.Fatalf("Could not connect: %v", lerr)
 	}
 	defer lc.Close()
-
 	l := chatpb.NewChatServiceClient(lc)
-
-	//fmt.Println("prepairing to chat\n")
-
 	chatConsole(clients, groupName, l)
 
 }
