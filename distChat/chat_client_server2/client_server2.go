@@ -37,7 +37,7 @@ func (c *server) Chat(stream chatpb.ChatService_ChatServer) error {
 			return nil
 		}
 		if err != nil {
-			log.Fatalf("Error recieving from chat stream: %v\n", err)
+			fmt.Printf("Error recieving from chat stream: %v\n", err)
 		}
 		database.StoreMessage(req, collection)
 		usr := req.GetMsg().GetUser()

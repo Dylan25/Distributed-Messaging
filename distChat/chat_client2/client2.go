@@ -41,23 +41,18 @@ func chatting(c chatpb.ChatServiceClient, user string, text string, time int64, 
 	})
 }
 
-func chatConsole(clients []chatpb.ChatServiceClient, group string, l chatpb.ChatServiceClient) {
+func chatConsole(clients []chatpb.ChatServiceClient, group string, user string, l chatpb.ChatServiceClient) {
 	waitc := make(chan struct{})
 	go func() {
-		buf := bufio.NewReader(os.Stdin)
-		fmt.Print("Enter user name: ")
-		user := ""
-		var uerr error
-		for user == "" {
-			user, uerr = buf.ReadString('\n')
-			if uerr != nil {
-				log.Fatalf("Error reading message input: %v", uerr)
-			}
-		}
+		fmt.Printf("Joined %v as %v. Type '!exit' to return to the menu\n", group, user)
 		go listening(l, user, group)
 
+		buf := bufio.NewReader(os.Stdin)
 		for {
 			text, err := buf.ReadString('\n')
+			if strings.ToLower(text) == "!exit\n" {
+				return
+			}
 			time := int64(time.Now().Unix())
 			if err != nil {
 				log.Fatalf("Error reading message input: %v", err)
@@ -163,7 +158,7 @@ func ParseMenuInput(input string, signedIn *bool, usersAccount *database.Account
 				fmt.Printf("JoinGroup error: %v", err)
 			}
 			clients := makeClients(ips)
-			chatConsole(clients, groupName, l)
+			chatConsole(clients, groupName, usersAccount.Name, l)
 		} else {
 			fmt.Println("Please signin before joining a group")
 		}

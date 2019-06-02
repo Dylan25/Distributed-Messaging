@@ -32,8 +32,8 @@ func CreateAccount() error {
 	if passworderr != nil {
 		return fmt.Errorf("Error reading password: %v", passworderr)
 	}
-	username = username[:len(username)-1]
-	password = password[:len(password)-1]
+	//username = username[:len(username)-1]
+	//password = password[:len(password)-1]
 
 	database.StoreAccount(
 		database.Account{
