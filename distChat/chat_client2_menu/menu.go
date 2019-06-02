@@ -20,33 +20,6 @@ func SetCollection(newCollection *mongo.Collection) {
 	collection = newCollection
 }
 
-func RunMenu() {
-	fmt.Println("Welcome to DistChat")
-	fmt.Println("type '!help' for a list of commands")
-	for {
-		buf := bufio.NewReader(os.Stdin)
-		input, inputerr := buf.ReadString('\n')
-		if inputerr != nil {
-			fmt.Printf("Error reading password: %v", inputerr)
-		}
-		ParseMenuInput(input)
-	}
-}
-
-func ParseMenuInput(input string) {
-
-	switch input {
-	case "CreateAccount":
-		CreateAccount()
-	case "SignIn":
-		SignIn()
-	case "ChangePassword":
-		ChangePassword()
-	case "JoinGroup":
-		PickGroup()
-	}
-}
-
 func CreateAccount() error {
 	buf := bufio.NewReader(os.Stdin)
 	fmt.Print("enter your new username: ")
@@ -131,7 +104,7 @@ func SignIn() (bool, database.Account, error) {
 	return true, account, nil
 }
 
-func PickGroup() ([]string, string, error) {
+func PickGroup(username string) ([]string, string, error) {
 
 	buf := bufio.NewReader(os.Stdin)
 	fmt.Print("enter group name: ")
@@ -150,8 +123,9 @@ func PickGroup() ([]string, string, error) {
 		ipToConnect = ipToConnect[:len(ipToConnect)-1]
 		IPs := strings.Fields(ipToConnect)
 		grouptojoin = database.Group{
-			IPs:  IPs,
-			Name: group,
+			IPs:   IPs,
+			Name:  group,
+			Owner: username,
 		}
 		database.StoreGroup(grouptojoin, collection)
 	}

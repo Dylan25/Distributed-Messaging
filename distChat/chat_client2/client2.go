@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
+	menu "github.com/Distributed-Messaging/distChat/chat_client2_menu"
 	c2server "github.com/Distributed-Messaging/distChat/chat_client_server2"
 	chatpb "github.com/Distributed-Messaging/distChat/chatpb"
 	database "github.com/Distributed-Messaging/distChat/database"
@@ -116,64 +119,83 @@ func makeClients(Ips []string) []chatpb.ChatServiceClient {
 	return clients
 }
 
-func signIn() {
-	buf := bufio.NewReader(os.Stdin)
-	fmt.Print("enter your username: ")
-	username, usernameerr := buf.ReadString('\n')
-	if usernameerr != nil {
-		log.Fatalf("Error reading username: %v", usernameerr)
-	}
-	username = username[:len(username)-1]
-	account, accounterr := database.GetOneAccountByName(username, collection)
-	if accounterr != nil {
-		log.Fatalf("Error username does not match any registerd accounts, %v", accounterr)
-	}
-
-	incorrectPassword := true
-	for incorrectPassword {
-		fmt.Print("enter your password: ")
-		password, passworderr := buf.ReadString('\n')
-		if passworderr != nil {
-			log.Fatalf("Error reading password: %v", passworderr)
+func RunMenu() {
+	var signedIn bool
+	var usersAccount database.Account
+	fmt.Println("Welcome to DistChat")
+	fmt.Println("type '!help' for a list of commands")
+	lc := GetListeningConnection()
+	defer lc.Close()
+	l := chatpb.NewChatServiceClient(lc)
+	for {
+		buf := bufio.NewReader(os.Stdin)
+		input, inputerr := buf.ReadString('\n')
+		if inputerr != nil {
+			fmt.Printf("Error reading password: %v", inputerr)
 		}
-		password = password[:len(password)-1]
-		if account.Password != password {
-			log.Printf("Error incorrect password: %v\n", passworderr)
-		} else {
-			incorrectPassword = false
-		}
+		input = input[:len(input)-1]
+		ParseMenuInput(strings.ToLower(input), &signedIn, &usersAccount, l)
 	}
-
-	fmt.Printf("Logged in as %v.\n", account.Name)
 }
 
-func pickGroup() ([]string, string) {
-
-	buf := bufio.NewReader(os.Stdin)
-	fmt.Print("enter group name: ")
-	group, grouperr := buf.ReadString('\n')
-	if grouperr != nil {
-		log.Fatalf("Error group name: %v", grouperr)
-	}
-	group = group[:len(group)-1]
-	grouptojoin, err := database.GetOneGroup(group, collection)
-	if err != nil {
-		fmt.Print("ips to connect to: ")
-		ipToConnect, ipcerr := buf.ReadString('\n')
-		if ipcerr != nil {
-			log.Fatalf("Error reading ip and port: %v", ipcerr)
+func ParseMenuInput(input string, signedIn *bool, usersAccount *database.Account, l chatpb.ChatServiceClient) {
+	switch input {
+	case "!help":
+		fmt.Println("!createaccount, !signIn, !changepassword, !joingroup, !help")
+	case "!createaccount":
+		menu.CreateAccount()
+	case "!signin":
+		//var account database.Account
+		var signInError error
+		*signedIn, *usersAccount, signInError = menu.SignIn()
+		*signedIn = false
+		if signInError != nil {
+			fmt.Printf("Sign in Error: %v\n", signInError)
+		} else {
+			*signedIn = true
 		}
-		ipToConnect = ipToConnect[:len(ipToConnect)-1]
-		IPs := strings.Fields(ipToConnect)
-		grouptojoin = database.Group{
-			IPs:  IPs,
-			Name: group,
+	case "!changepassword":
+		menu.ChangePassword()
+	case "!joingroup":
+		if *signedIn {
+			ips, groupName, err := menu.PickGroup(usersAccount.Name)
+			if err != nil {
+				fmt.Printf("JoinGroup error: %v", err)
+			}
+			clients := makeClients(ips)
+			chatConsole(clients, groupName, l)
+		} else {
+			fmt.Println("Please signin before joining a group")
 		}
-		database.StoreGroup(grouptojoin, collection)
 	}
+}
 
-	fmt.Printf("connecting to %s", group)
-	return grouptojoin.IPs, grouptojoin.Name
+func GetListeningConnection() *grpc.ClientConn {
+	//GetListeningConnection finds an open port to host the listener server on.
+	var lc *grpc.ClientConn
+	var lerr error
+	port := 50051
+	for {
+		//find an open port
+		ip := "0.0.0.0:" + strconv.Itoa(port)
+		testIfOpen, testError := net.Listen("tcp", ":"+strconv.Itoa(port))
+		if testError != nil {
+			fmt.Printf("1Could not connect to: %v error: %v", ip, lerr)
+			port++
+			continue
+		}
+		testIfOpen.Close()
+		//found an open port so run server on it
+		go c2server.Run(ip)
+		lc, lerr = grpc.Dial(ip, grpc.WithInsecure())
+		if lerr != nil {
+			fmt.Printf("2Could not connect to: %v error: %v", ip, lerr)
+			port++
+		} else {
+			break
+		}
+	}
+	return lc
 }
 
 func main() {
@@ -189,25 +211,28 @@ func main() {
 	}
 
 	collection = client.Database("mydb").Collection("chatgroups")
+	menu.SetCollection(collection)
 
 	// fmt.Println("group: %v", database.GetOneGroup("friends", collection))
 
-	buf := bufio.NewReader(os.Stdin)
-	fmt.Print("server ip and port: ")
-	ip, iperr := buf.ReadString('\n')
-	if iperr != nil {
-		log.Fatalf("Error reading ip and port: %v", iperr)
-	}
-	ip = ip[:len(ip)-1]
-	go c2server.Run(ip)
-	IPs, groupName := pickGroup()
-	clients := makeClients(IPs)
-	lc, lerr := grpc.Dial(ip, grpc.WithInsecure())
-	if lerr != nil {
-		log.Fatalf("Could not connect: %v", lerr)
-	}
-	defer lc.Close()
-	l := chatpb.NewChatServiceClient(lc)
-	chatConsole(clients, groupName, l)
+	// buf := bufio.NewReader(os.Stdin)
+	// fmt.Print("server ip and port: ")
+	// ip, iperr := buf.ReadString('\n')
+	// if iperr != nil {
+	// 	log.Fatalf("Error reading ip and port: %v", iperr)
+	// }
+	// ip = ip[:len(ip)-1]
+	// go c2server.Run(ip)
+	// IPs, groupName := pickGroup()
+	// clients := makeClients(IPs)
+	// lc, lerr := grpc.Dial(ip, grpc.WithInsecure())
+	// if lerr != nil {
+	// 	log.Fatalf("Could not connect: %v", lerr)
+	// }
+	// defer lc.Close()
+	// l := chatpb.NewChatServiceClient(lc)
+	// chatConsole(clients, groupName, l)
+
+	RunMenu()
 
 }

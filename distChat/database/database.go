@@ -21,9 +21,10 @@ type Message struct {
 }
 
 type Group struct {
-	ID   primitive.ObjectID `bson:"_id,omitempty"`
-	IPs  []string           `bson:"IPs,omitempty"`
-	Name string             `bson:"Name,omitempty"`
+	ID    primitive.ObjectID `bson:"_id,omitempty"`
+	IPs   []string           `bson:"IPs,omitempty"`
+	Name  string             `bson:"Name,omitempty"`
+	Owner string             `bson:"Owner,omitempty"`
 }
 
 type Account struct {
