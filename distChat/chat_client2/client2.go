@@ -20,9 +20,13 @@ import (
 	chatpb "github.com/Distributed-Messaging/distChat/chatpb"
 	database "github.com/Distributed-Messaging/distChat/database"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
-var collection *mongo.Collection
+var (
+	collection *mongo.Collection
+	cert       = "../authentication/server.crt"
+)
 
 func chatting(c chatpb.ChatServiceClient, user string, text string, time int64, group string) {
 	stream, err := c.Chat(context.Background())
@@ -100,10 +104,10 @@ func listening(c chatpb.ChatServiceClient, user string, group string) {
 
 }
 
-func makeClients(Ips []string) []chatpb.ChatServiceClient {
+func makeClients(Ips []string, creds credentials.TransportCredentials) []chatpb.ChatServiceClient {
 	var clients []chatpb.ChatServiceClient
 	for _, ip := range Ips {
-		cc, err := grpc.Dial(ip, grpc.WithInsecure())
+		cc, err := grpc.Dial(ip, grpc.WithTransportCredentials(creds))
 		if err != nil {
 			log.Fatalf("Could not connect: %v", err)
 		}
@@ -115,11 +119,15 @@ func makeClients(Ips []string) []chatpb.ChatServiceClient {
 }
 
 func RunMenu() {
+	creds, err := credentials.NewClientTLSFromFile(cert, "")
+	if err != nil {
+		fmt.Printf("could not load tls cert: %v", err)
+	}
 	var signedIn bool
 	var usersAccount database.Account
 	fmt.Println("Welcome to DistChat")
 	fmt.Println("type '!help' for a list of commands")
-	lc := GetListeningConnection()
+	lc := GetListeningConnection(creds)
 	defer lc.Close()
 	l := chatpb.NewChatServiceClient(lc)
 	for {
@@ -129,14 +137,14 @@ func RunMenu() {
 			fmt.Printf("Error reading password: %v", inputerr)
 		}
 		input = input[:len(input)-1]
-		ParseMenuInput(strings.ToLower(input), &signedIn, &usersAccount, l)
+		ParseMenuInput(strings.ToLower(input), &signedIn, &usersAccount, l, creds)
 	}
 }
 
-func ParseMenuInput(input string, signedIn *bool, usersAccount *database.Account, l chatpb.ChatServiceClient) {
+func ParseMenuInput(input string, signedIn *bool, usersAccount *database.Account, l chatpb.ChatServiceClient, creds credentials.TransportCredentials) {
 	switch input {
 	case "!help":
-		fmt.Println("!createaccount, !signIn, !changepassword, !joingroup, !help")
+		fmt.Println("!createaccount, !signIn, !changepassword, !joingroup, !listgroups, !help")
 	case "!createaccount":
 		menu.CreateAccount()
 	case "!signin":
@@ -157,15 +165,18 @@ func ParseMenuInput(input string, signedIn *bool, usersAccount *database.Account
 			if err != nil {
 				fmt.Printf("JoinGroup error: %v", err)
 			}
-			clients := makeClients(ips)
+			clients := makeClients(ips, creds)
 			chatConsole(clients, groupName, usersAccount.Name, l)
 		} else {
 			fmt.Println("Please signin before joining a group")
 		}
+	case "!listgroups":
+		menu.ListGroups(usersAccount.Name)
 	}
+
 }
 
-func GetListeningConnection() *grpc.ClientConn {
+func GetListeningConnection(creds credentials.TransportCredentials) *grpc.ClientConn {
 	//GetListeningConnection finds an open port to host the listener server on.
 	var lc *grpc.ClientConn
 	var lerr error
@@ -180,9 +191,10 @@ func GetListeningConnection() *grpc.ClientConn {
 			continue
 		}
 		testIfOpen.Close()
+		fmt.Printf("client creds are: %v", creds)
 		//found an open port so run server on it
 		go c2server.Run(ip)
-		lc, lerr = grpc.Dial(ip, grpc.WithInsecure())
+		lc, lerr = grpc.Dial(ip, grpc.WithTransportCredentials(creds))
 		if lerr != nil {
 			fmt.Printf("2Could not connect to: %v error: %v", ip, lerr)
 			port++
@@ -207,27 +219,5 @@ func main() {
 
 	collection = client.Database("mydb").Collection("chatgroups")
 	menu.SetCollection(collection)
-
-	// fmt.Println("group: %v", database.GetOneGroup("friends", collection))
-
-	// buf := bufio.NewReader(os.Stdin)
-	// fmt.Print("server ip and port: ")
-	// ip, iperr := buf.ReadString('\n')
-	// if iperr != nil {
-	// 	log.Fatalf("Error reading ip and port: %v", iperr)
-	// }
-	// ip = ip[:len(ip)-1]
-	// go c2server.Run(ip)
-	// IPs, groupName := pickGroup()
-	// clients := makeClients(IPs)
-	// lc, lerr := grpc.Dial(ip, grpc.WithInsecure())
-	// if lerr != nil {
-	// 	log.Fatalf("Could not connect: %v", lerr)
-	// }
-	// defer lc.Close()
-	// l := chatpb.NewChatServiceClient(lc)
-	// chatConsole(clients, groupName, l)
-
 	RunMenu()
-
 }

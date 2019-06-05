@@ -20,6 +20,23 @@ func SetCollection(newCollection *mongo.Collection) {
 	collection = newCollection
 }
 
+func ListGroups(username string, signedIn bool) error {
+	//ListGroups prints all groups owned by username to the screen
+	if !signedIn {
+		fmt.Println("Please sign in before lsiting groups")
+		return fmt.Errorf("User not signed in")
+	}
+	groups, err := database.GetOwnedGroups(username, collection)
+	if err != nil {
+		return fmt.Errorf("Error reading owned groups: %v", err)
+	}
+	fmt.Println("You own these groups")
+	for _, group := range groups {
+		fmt.Println(group)
+	}
+	return nil
+}
+
 func CreateAccount() error {
 	buf := bufio.NewReader(os.Stdin)
 	fmt.Print("enter your new username: ")
@@ -105,7 +122,6 @@ func SignIn() (bool, database.Account, error) {
 }
 
 func PickGroup(username string) ([]string, string, error) {
-
 	buf := bufio.NewReader(os.Stdin)
 	fmt.Print("enter group name: ")
 	group, grouperr := buf.ReadString('\n')

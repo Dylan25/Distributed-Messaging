@@ -95,6 +95,23 @@ func GetAllGroups(collection *mongo.Collection) []Group {
 	return groups
 }
 
+func GetOwnedGroups(owner string, collection *mongo.Collection) ([]Group, error) {
+	var groups []Group
+	cursor, err := collection.Find(context.Background(), Group{Owner: owner})
+	if err != nil {
+		fmt.Println("could not read OwnedGroups")
+		return groups, errors.New("could not read OwnedGroups")
+	}
+	defer cursor.Close(context.Background())
+	for cursor.Next(context.Background()) {
+		var group Group
+		cursor.Decode(&group)
+		groups = append(groups, group)
+	}
+
+	return groups, nil
+}
+
 func GetOneGroup(group string, collection *mongo.Collection) (Group, error) {
 	var g Group
 	err := collection.FindOne(context.Background(), Group{Name: group}).Decode(&g)

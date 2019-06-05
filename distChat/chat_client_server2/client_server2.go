@@ -15,9 +15,14 @@ import (
 	chatpb "github.com/Distributed-Messaging/distChat/chatpb"
 	database "github.com/Distributed-Messaging/distChat/database"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
-var collection *mongo.Collection
+var (
+	collection *mongo.Collection
+	crt        = "../authentication/server.crt"
+	key        = "../authentication/server.pem"
+)
 
 type server struct {
 	Broadcast chan chatpb.ChatResponse
@@ -183,7 +188,14 @@ func Run(ip string) {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer()
+	//Create TLS Creds
+	creds, err := credentials.NewServerTLSFromFile(crt, key)
+	if err != nil {
+		fmt.Println("server tls error")
+	}
+	fmt.Printf("server creds are: %v", creds)
+
+	s := grpc.NewServer(grpc.Creds(creds))
 	chatpb.RegisterChatServiceServer(s, &server{
 		Broadcast:   make(chan chatpb.ChatResponse, 1000),
 		Users:       make(map[string]string),
