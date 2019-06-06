@@ -1,4 +1,5 @@
 #!/bin/bash
+#credit to Simple-Steph for this guide
 # Inspired from: https://github.com/grpc/grpc-java/tree/master/examples#generating-self-signed-certificates-for-use-with-grpc
 
 # Output files
