@@ -8,8 +8,6 @@ message Letter {
     string text = 2;
     int64 time = 3;
     string group = 4;
-    // string destip = 3;
-    // string destport = 4;
 }
 
 message ChatRequest {

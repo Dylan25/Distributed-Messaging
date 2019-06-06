@@ -34,10 +34,12 @@ type Account struct {
 }
 
 func StoreAccount(account Account, collection *mongo.Collection) {
+	//store a single account
 	collection.InsertOne(context.Background(), account)
 }
 
 func GetOneAccountByName(name string, collection *mongo.Collection) (Account, error) {
+	//returns the account with Name: name
 	var a Account
 	err := collection.FindOne(context.Background(), Account{Name: name}).Decode(&a)
 	if err != nil {
@@ -48,6 +50,7 @@ func GetOneAccountByName(name string, collection *mongo.Collection) (Account, er
 }
 
 func StoreMessage(req *chatpb.ChatRequest, collection *mongo.Collection) {
+	//constructs a database message entry from a chatrequest and stores it.
 	message := req.GetMsg()
 	messagetostore := Message{
 		User:  message.GetUser(),
@@ -60,6 +63,7 @@ func StoreMessage(req *chatpb.ChatRequest, collection *mongo.Collection) {
 }
 
 func GetAllMessagesInGroup(name string, collection *mongo.Collection) []Message {
+	//returns all messages with Group: name
 	var messages []Message
 	cursor, err := collection.Find(context.Background(), Message{Group: name})
 	if err != nil {
@@ -76,10 +80,12 @@ func GetAllMessagesInGroup(name string, collection *mongo.Collection) []Message 
 }
 
 func StoreGroup(group Group, collection *mongo.Collection) {
+	//store a single group
 	collection.InsertOne(context.Background(), group)
 }
 
 func GetAllGroups(collection *mongo.Collection) []Group {
+	//returns all groups in the collection
 	var groups []Group
 	cursor, err := collection.Find(context.Background(), bson.M{})
 	if err != nil {
@@ -95,7 +101,26 @@ func GetAllGroups(collection *mongo.Collection) []Group {
 	return groups
 }
 
+func GetOwnedGroups(owner string, collection *mongo.Collection) ([]Group, error) {
+	//returns all groups with Owner: owner
+	var groups []Group
+	cursor, err := collection.Find(context.Background(), Group{Owner: owner})
+	if err != nil {
+		fmt.Println("could not read OwnedGroups")
+		return groups, errors.New("could not read OwnedGroups")
+	}
+	defer cursor.Close(context.Background())
+	for cursor.Next(context.Background()) {
+		var group Group
+		cursor.Decode(&group)
+		groups = append(groups, group)
+	}
+
+	return groups, nil
+}
+
 func GetOneGroup(group string, collection *mongo.Collection) (Group, error) {
+	//returns a single group struct with the corresponding name
 	var g Group
 	err := collection.FindOne(context.Background(), Group{Name: group}).Decode(&g)
 	if err != nil {

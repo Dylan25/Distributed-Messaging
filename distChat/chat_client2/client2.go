@@ -25,6 +25,7 @@ import (
 var collection *mongo.Collection
 
 func chatting(c chatpb.ChatServiceClient, user string, text string, time int64, group string) {
+	//chatting constructs and sends a users message to a single target
 	stream, err := c.Chat(context.Background())
 	if err != nil {
 		log.Fatalf("Error creating Stream: %v", err)
@@ -42,15 +43,38 @@ func chatting(c chatpb.ChatServiceClient, user string, text string, time int64, 
 }
 
 func chatConsole(clients []chatpb.ChatServiceClient, group string, user string, l chatpb.ChatServiceClient) {
+	//ChatConsole uses two go routines to send the users messages, and recieve messages for the user.
 	waitc := make(chan struct{})
+	exitChannel := make(chan struct{})
+	listenStopped := make(chan struct{})
+
+	//create the listener stream
+	stream, err := l.Listen(context.Background())
+	if err != nil {
+		log.Fatalf("Error creating Stream: %v", err)
+		return
+	}
+
+	//send outgoing messages
 	go func() {
 		fmt.Printf("Joined %v as %v. Type '!exit' to return to the menu\n", group, user)
-		go listening(l, user, group)
 
 		buf := bufio.NewReader(os.Stdin)
 		for {
 			text, err := buf.ReadString('\n')
 			if strings.ToLower(text) == "!exit\n" {
+				//Leave the chatroom, shutdown both go routines
+				close(exitChannel)
+				//send a message to the listen server so that
+				//its go routine switch statment can see that exitChannel has been closed
+				stream.Send(&chatpb.ListenRequest{
+					User:  user,
+					Group: group,
+				})
+				//wait for the Listen go routine to stop
+				<-listenStopped
+				//exit
+				close(waitc)
 				return
 			}
 			time := int64(time.Now().Unix())
@@ -65,42 +89,44 @@ func chatConsole(clients []chatpb.ChatServiceClient, group string, user string, 
 		}
 	}()
 
+	//Listen for incoming messages
+	go func() {
+		stream.Send(&chatpb.ListenRequest{
+			User:  user,
+			Group: group,
+		})
+
+		for {
+			select {
+			default:
+				res, err := stream.Recv()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					log.Fatalf("Erro while recieving: %v", err)
+					break
+				}
+				//display message to user
+				user := res.GetMsg().GetUser()
+				messagetime := time.Unix(res.GetMsg().GetTime(), 0)
+				text := res.GetMsg().GetText()
+				text = text[:len(text)-1]
+				reply := ":" + user + ": " + text
+				fmt.Printf("%v%s\n", messagetime, reply)
+				//the below case closes this function
+			case <-exitChannel:
+				close(listenStopped)
+				return
+			}
+		}
+	}()
 	<-waitc
-
-}
-
-func listening(c chatpb.ChatServiceClient, user string, group string) {
-	stream, err := c.Listen(context.Background())
-	if err != nil {
-		log.Fatalf("Error creating Stream: %v", err)
-		return
-	}
-	stream.Send(&chatpb.ListenRequest{
-		User:  user,
-		Group: group,
-	})
-
-	for {
-		res, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Fatalf("Erro while recieving: %v", err)
-			break
-		}
-		user := res.GetMsg().GetUser()
-		messagetime := time.Unix(res.GetMsg().GetTime(), 0)
-		user = user[:len(user)-1]
-		text := res.GetMsg().GetText()
-		text = text[:len(text)-1]
-		reply := ":" + user + ": " + text
-		fmt.Printf("%v%s\n", messagetime, reply)
-	}
-
 }
 
 func makeClients(Ips []string) []chatpb.ChatServiceClient {
+	//makeClients generates a Grpc client stub for each ip in the group
+	//the client is connecting to
 	var clients []chatpb.ChatServiceClient
 	for _, ip := range Ips {
 		cc, err := grpc.Dial(ip, grpc.WithInsecure())
@@ -115,6 +141,8 @@ func makeClients(Ips []string) []chatpb.ChatServiceClient {
 }
 
 func RunMenu() {
+	//RunMenu maintains the user's account state sets up the listener server and
+	//drives the menu parser
 	var signedIn bool
 	var usersAccount database.Account
 	fmt.Println("Welcome to DistChat")
@@ -134,13 +162,13 @@ func RunMenu() {
 }
 
 func ParseMenuInput(input string, signedIn *bool, usersAccount *database.Account, l chatpb.ChatServiceClient) {
+	//ParseMenuInput calls the apropriate menu function on the users input
 	switch input {
 	case "!help":
-		fmt.Println("!createaccount, !signIn, !changepassword, !joingroup, !help")
+		fmt.Println("!createaccount, !signIn, !changepassword, !joingroup, !listgroups, !help")
 	case "!createaccount":
 		menu.CreateAccount()
 	case "!signin":
-		//var account database.Account
 		var signInError error
 		*signedIn, *usersAccount, signInError = menu.SignIn()
 		*signedIn = false
@@ -154,14 +182,18 @@ func ParseMenuInput(input string, signedIn *bool, usersAccount *database.Account
 	case "!joingroup":
 		if *signedIn {
 			ips, groupName, err := menu.PickGroup(usersAccount.Name)
+			fmt.Printf("connectint to: %v at %v", groupName, ips)
 			if err != nil {
 				fmt.Printf("JoinGroup error: %v", err)
 			}
 			clients := makeClients(ips)
 			chatConsole(clients, groupName, usersAccount.Name, l)
+			fmt.Println("done chatting")
 		} else {
 			fmt.Println("Please signin before joining a group")
 		}
+	case "!listgroups":
+		menu.ListGroups(usersAccount.Name, *signedIn)
 	}
 }
 
@@ -175,16 +207,16 @@ func GetListeningConnection() *grpc.ClientConn {
 		ip := "0.0.0.0:" + strconv.Itoa(port)
 		testIfOpen, testError := net.Listen("tcp", ":"+strconv.Itoa(port))
 		if testError != nil {
-			fmt.Printf("1Could not connect to: %v error: %v", ip, lerr)
+			fmt.Printf("Could not connect to: %v error: %v\n", ip, lerr)
 			port++
 			continue
 		}
 		testIfOpen.Close()
 		//found an open port so run server on it
+		fmt.Printf("Hosting on: %v\n", ip)
 		go c2server.Run(ip)
 		lc, lerr = grpc.Dial(ip, grpc.WithInsecure())
 		if lerr != nil {
-			fmt.Printf("2Could not connect to: %v error: %v", ip, lerr)
 			port++
 		} else {
 			break
@@ -195,6 +227,7 @@ func GetListeningConnection() *grpc.ClientConn {
 
 func main() {
 
+	//connect to mongo
 	uri := "mongodb://localhost:27017"
 	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
 	if err != nil {
@@ -207,27 +240,5 @@ func main() {
 
 	collection = client.Database("mydb").Collection("chatgroups")
 	menu.SetCollection(collection)
-
-	// fmt.Println("group: %v", database.GetOneGroup("friends", collection))
-
-	// buf := bufio.NewReader(os.Stdin)
-	// fmt.Print("server ip and port: ")
-	// ip, iperr := buf.ReadString('\n')
-	// if iperr != nil {
-	// 	log.Fatalf("Error reading ip and port: %v", iperr)
-	// }
-	// ip = ip[:len(ip)-1]
-	// go c2server.Run(ip)
-	// IPs, groupName := pickGroup()
-	// clients := makeClients(IPs)
-	// lc, lerr := grpc.Dial(ip, grpc.WithInsecure())
-	// if lerr != nil {
-	// 	log.Fatalf("Could not connect: %v", lerr)
-	// }
-	// defer lc.Close()
-	// l := chatpb.NewChatServiceClient(lc)
-	// chatConsole(clients, groupName, l)
-
 	RunMenu()
-
 }

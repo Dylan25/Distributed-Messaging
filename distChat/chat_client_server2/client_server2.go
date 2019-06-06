@@ -20,8 +20,7 @@ import (
 var collection *mongo.Collection
 
 type server struct {
-	Broadcast chan chatpb.ChatResponse
-	Listener  chan chatpb.ListenResponse
+	Listener chan chatpb.ListenResponse
 
 	Users       map[string]string
 	UserStreams map[string]chan chatpb.ChatResponse
@@ -31,6 +30,7 @@ type server struct {
 }
 
 func (c *server) Chat(stream chatpb.ChatService_ChatServer) error {
+	//recieves incoming messages and queues them for later dispatch to the recipient
 	for {
 		req, err := stream.Recv()
 		if err == io.EOF {
@@ -56,9 +56,9 @@ func (c *server) Chat(stream chatpb.ChatService_ChatServer) error {
 }
 
 func (c *server) SendMessageHistory(name string) {
+	//queues all messages in a group's history for the recipient
 	fmt.Printf("searching for messages in: %v\n", name)
 	history := database.GetAllMessagesInGroup(name, collection)
-	//fmt.Printf("history at 0 is: %v\n", history[0])
 
 	for _, message := range history {
 		c.Listener <- chatpb.ListenResponse{
@@ -73,79 +73,27 @@ func (c *server) SendMessageHistory(name string) {
 }
 
 func (c *server) Listen(stream chatpb.ChatService_ListenServer) error {
-	fmt.Println("server doing a Listen")
 	c.sendMessages(stream)
 	return nil
 }
 
-func (c *server) setName(user string) {
-	c.UserMutex.Lock()
-	c.Users[user] = user
-	c.UserMutex.Unlock()
-}
-
-func (c *server) delName(user string) {
-	c.UserMutex.Lock()
-	if c.Users[user] == user {
-		delete(c.Users, user)
-	}
-	c.UserMutex.Unlock()
-}
-
-func (c *server) setMessage(user string, req *chatpb.ChatRequest) {
-	c.StreamMutex.Lock()
-
-	usr := req.GetMsg().GetUser()
-	text := req.GetMsg().GetText()
-	time := req.GetMsg().GetTime()
-	group := req.GetMsg().GetGroup()
-
-	c.UserStreams[user] <- chatpb.ChatResponse{
-		Msg: &chatpb.Letter{
-			User:  usr,
-			Text:  text,
-			Time:  time,
-			Group: group,
-		},
-	}
-	c.StreamMutex.Unlock()
-}
-
-func (c *server) openStream(user string) {
-	stream := make(chan chatpb.ChatResponse, 100)
-
-	c.StreamMutex.Lock()
-	c.UserStreams[user] = stream
-	c.StreamMutex.Unlock()
-}
-
-func (c *server) closeStream(user string) {
-	c.StreamMutex.Lock()
-
-	if stream, ok := c.UserStreams[user]; ok {
-		delete(c.UserStreams, user)
-		close(stream)
-	}
-
-	c.StreamMutex.Unlock()
-}
-
-func (c *server) broadcast(ctx context.Context) {
-	for res := range c.Broadcast {
-		c.StreamMutex.RLock()
-		for _, stream := range c.UserStreams {
-			stream <- res
-		}
-		c.StreamMutex.RUnlock()
-	}
-}
-
 func (c *server) sendMessages(srv chatpb.ChatService_ListenServer) {
+	//send all queued historical and recieved messages to the recipient
 	req, err := srv.Recv()
-	if err != nil {
-		log.Fatalf("Error recieving from Listen stream: %v\n", err)
-	}
-	fmt.Printf("server dis sendMessages recieve group is: %v\n", req.GetGroup())
+	go func() {
+		for {
+			req, err = srv.Recv()
+			c.Listener <- chatpb.ListenResponse{
+				Msg: &chatpb.Letter{
+					User:  req.GetUser(),
+					Text:  "leaving group chat.",
+					Time:  0,
+					Group: req.GetGroup(),
+				}}
+			return
+		}
+	}()
+	fmt.Printf("server is sendMessages recieve group is: %v\n", req.GetGroup())
 	c.SendMessageHistory(req.GetGroup())
 	fmt.Println("server doing sendMessages")
 	stream := c.Listener
@@ -157,15 +105,8 @@ func (c *server) sendMessages(srv chatpb.ChatService_ListenServer) {
 
 }
 
-func (c *server) getName(user string) (name string, ok bool) {
-	c.UserMutex.Lock()
-	name, ok = c.Users[user]
-	c.UserMutex.Unlock()
-	return name, ok
-}
-
 func Run(ip string) {
-	fmt.Println("Hello World")
+	//connect to mongo
 	uri := "mongodb://localhost:27017"
 	client, err := mongo.NewClient(options.Client().ApplyURI(uri))
 	if err != nil {
@@ -183,9 +124,9 @@ func Run(ip string) {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 
+	//initialize server
 	s := grpc.NewServer()
 	chatpb.RegisterChatServiceServer(s, &server{
-		Broadcast:   make(chan chatpb.ChatResponse, 1000),
 		Users:       make(map[string]string),
 		UserStreams: make(map[string]chan chatpb.ChatResponse),
 		Listener:    make(chan chatpb.ListenResponse, 1000),
